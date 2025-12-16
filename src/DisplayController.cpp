@@ -82,8 +82,8 @@ void DisplayController::showStartup() {
     u8g2.drawStr((128 - w) / 2, 20, "Mastashake");
     
     u8g2.setFont(u8g2_font_6x10_tf);
-    w = u8g2.getStrWidth("BLE Controller");
-    u8g2.drawStr((128 - w) / 2, 40, "BLE Controller");
+    w = u8g2.getStrWidth("LoRA/BLE Controller");
+    u8g2.drawStr((128 - w) / 2, 40, "LoRA/BLE Controller");
     
     u8g2.sendBuffer();
 }
