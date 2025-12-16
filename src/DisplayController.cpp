@@ -45,7 +45,7 @@ bool DisplayController::begin() {
     // Test: Draw something immediately
     u8g2.clearBuffer();
     u8g2.setFont(u8g2_font_ncenB10_tr);
-    u8g2.drawStr(0, 20, "HACKER GANG BITCH");
+    u8g2.drawStr(0, 20, "HACKER GANG!");
     u8g2.sendBuffer();
     Serial.println("Test pattern sent to display");
     delay(2000);
