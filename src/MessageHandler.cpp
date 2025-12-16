@@ -8,7 +8,7 @@ MessageHandler::MessageHandler() {
 
 bool MessageHandler::begin() {
     messages.clear();
-    Serial.println("Message handler initialized");
+    Serial.println("Message handler initialized with official Meshtastic protobufs");
     return true;
 }
 
@@ -22,34 +22,33 @@ bool MessageHandler::processReceivedData(uint8_t* data, size_t length) {
 }
 
 bool MessageHandler::decodeFromRadio(const uint8_t* data, size_t length) {
-    // Create a stream for decoding
-    pb_istream_t stream = pb_istream_from_buffer(data, length);
-    FromRadio fromRadio = {0};
+    meshtastic_FromRadio fromRadio = meshtastic_FromRadio_init_zero;
     
     // Decode the message
-    if (!decode_from_radio(&stream, &fromRadio)) {
+    if (!decode_from_radio(data, length, &fromRadio)) {
         Serial.println("Decode failed");
         return false;
     }
     
-    // Check if it's a packet (contains mesh data)
-    if (fromRadio.has_packet) {
-        MeshPacket packet = fromRadio.packet;
-        Data decoded = packet.decoded;
+    // Check which variant is present
+    if (fromRadio.which_payload_variant == meshtastic_FromRadio_packet_tag) {
+        meshtastic_MeshPacket packet = fromRadio.packet;
         
-        // Check if it's a text message
-        if (decoded.portnum == PortNum_TEXT_MESSAGE_APP) {
-            // Set up payload callback for decoding
-            decoded.payload.funcs.decode = decode_payload_callback;
-            decoded.payload.arg = payload_buffer;
+        // Check if packet has decoded data (not encrypted)
+        if (packet.which_payload_variant == meshtastic_MeshPacket_decoded_tag) {
+            meshtastic_Data decoded = packet.decoded;
             
-            // The payload should now be in payload_buffer
-            String text = String((char*)payload_buffer);
-            String sender = String(packet.from, HEX);
-            
-            Serial.printf("Received message from %s: %s\n", sender.c_str(), text.c_str());
-            addMessage(sender, text, false);
-            return true;
+            // Check if it's a text message
+            if (decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP) {
+                // Extract text from payload bytes
+                String text = String((char*)decoded.payload.bytes);
+                text = text.substring(0, decoded.payload.size); // Limit to actual size
+                String sender = String(packet.from, HEX);
+                
+                Serial.printf("Received message from 0x%08X: %s\n", packet.from, text.c_str());
+                addMessage(sender, text, false);
+                return true;
+            }
         }
     }
     
@@ -57,39 +56,43 @@ bool MessageHandler::decodeFromRadio(const uint8_t* data, size_t length) {
 }
 
 bool MessageHandler::createTextMessage(const String& text, uint8_t* buffer, size_t* length, size_t maxLen) {
-    // Copy text to payload buffer
-    strncpy((char*)payload_buffer, text.c_str(), sizeof(payload_buffer) - 1);
-    payload_buffer[sizeof(payload_buffer) - 1] = '\0';
+    // Initialize ToRadio message
+    meshtastic_ToRadio toRadio = meshtastic_ToRadio_init_zero;
+    meshtastic_MeshPacket packet = meshtastic_MeshPacket_init_zero;
+    meshtastic_Data msgData = meshtastic_Data_init_zero;
     
-    // Create a text message packet
-    MeshPacket packet = {0};
-    Data msgData;
-    memset(&msgData, 0, sizeof(msgData));
+    // Set up the Data message
+    msgData.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
     
-    // Set message text
-    msgData.portnum = PortNum_TEXT_MESSAGE_APP;
-    msgData.payload.funcs.encode = encode_payload_callback;
-    msgData.payload.arg = payload_buffer;
+    // Copy text to payload
+    size_t textLen = text.length();
+    if (textLen > sizeof(msgData.payload.bytes) - 1) {
+        textLen = sizeof(msgData.payload.bytes) - 1;
+    }
+    memcpy(msgData.payload.bytes, text.c_str(), textLen);
+    msgData.payload.size = textLen;
     
-    // Set packet data
+    // Set up the MeshPacket
+    packet.which_payload_variant = meshtastic_MeshPacket_decoded_tag;
     packet.decoded = msgData;
-    packet.to = 0xFFFFFFFF; // Broadcast
+    packet.to = 0xFFFFFFFF; // Broadcast address
     packet.want_ack = false;
+    packet.hop_limit = 3; // Default hop limit
+    packet.priority = meshtastic_MeshPacket_Priority_DEFAULT;
     
-    // Encode to ToRadio
-    ToRadio toRadio = {0};
-    toRadio.has_packet = true;
+    // Set up ToRadio message
+    toRadio.which_payload_variant = meshtastic_ToRadio_packet_tag;
     toRadio.packet = packet;
     
     // Encode the message
-    pb_ostream_t outStream = pb_ostream_from_buffer(buffer, maxLen);
-    if (!encode_to_radio(&outStream, &toRadio)) {
+    size_t bytes_written = 0;
+    if (!encode_to_radio(buffer, maxLen, &toRadio, &bytes_written)) {
         Serial.println("Encode failed");
         return false;
     }
     
-    *length = outStream.bytes_written;
-    Serial.printf("Created message, encoded %d bytes\n", *length);
+    *length = bytes_written;
+    Serial.printf("Created message, encoded %zu bytes\n", *length);
     return true;
 }
 
