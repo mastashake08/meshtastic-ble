@@ -7,6 +7,8 @@
 // PRG button (GPIO0 on ESP32)
 #define PRG_BUTTON 0
 #define LONG_PRESS_TIME 3000  // 3 seconds
+#define MULTI_CLICK_TIMEOUT 500  // Max time between clicks (ms)
+#define SHUTDOWN_CLICKS 5  // Number of clicks to shutdown
 
 // Battery monitoring (Heltec WiFi LoRa 32 V3)
 #define BATTERY_PIN 1  // ADC1_CH0 for battery voltage
@@ -28,6 +30,8 @@ DisplayController display;
 unsigned long buttonPressTime = 0;
 bool buttonWasPressed = false;
 bool sleepMode = false;
+int clickCount = 0;
+unsigned long lastClickTime = 0;
 
 // Battery state
 uint8_t batteryLevel = 100;
@@ -81,6 +85,31 @@ uint8_t readBatteryLevel() {
     if (percentage > 100) percentage = 100;
     
     return (uint8_t)percentage;
+}
+
+void shutdownDevice() {
+    Serial.println("\n=== SHUTDOWN SEQUENCE ===");
+    Serial.println("5 clicks detected - shutting down...");
+    
+    // Show shutdown message on display
+    display.clear();
+    display.updateStatus("Shutdown");
+    display.showStartup();
+    
+    delay(2000);
+    
+    // Turn off display
+    display.sleep();
+    
+    // Stop BLE
+    bleServer.stopAdvertising();
+    
+    Serial.println("Entering deep sleep...");
+    delay(100);
+    
+    // Enter deep sleep (wake on button press)
+    esp_sleep_enable_ext0_wakeup((gpio_num_t)PRG_BUTTON, 0);  // Wake on LOW (button press)
+    esp_deep_sleep_start();
 }
 
 void setup() {
@@ -196,6 +225,7 @@ void loop() {
         if (pressDuration >= LONG_PRESS_TIME) {
             // Long press detected - toggle sleep mode
             sleepMode = !sleepMode;
+            clickCount = 0;  // Reset click counter
             
             if (sleepMode) {
                 Serial.println("Entering sleep mode...");
@@ -218,8 +248,28 @@ void loop() {
                         break;
                 }
             }
+        } else {
+            // Short press - count clicks
+            if (currentTime - lastClickTime < MULTI_CLICK_TIMEOUT) {
+                clickCount++;
+                Serial.printf("Click %d/%d\n", clickCount, SHUTDOWN_CLICKS);
+            } else {
+                clickCount = 1;
+                Serial.println("Click 1/5");
+            }
+            lastClickTime = currentTime;
+            
+            // Check for shutdown sequence
+            if (clickCount >= SHUTDOWN_CLICKS) {
+                shutdownDevice();
+            }
         }
         buttonWasPressed = false;
+    }
+    
+    // Reset click counter if timeout exceeded
+    if (clickCount > 0 && currentTime - lastClickTime > MULTI_CLICK_TIMEOUT) {
+        clickCount = 0;
     }
     
     switch (currentState) {
