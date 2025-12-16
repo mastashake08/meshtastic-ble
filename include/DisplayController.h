@@ -5,11 +5,6 @@
 #include <U8g2lib.h>
 #include "MessageHandler.h"
 
-// Heltec WiFi Kit 32 V3 display pins
-#define DISPLAY_SDA 17
-#define DISPLAY_SCL 18
-#define DISPLAY_RST 21
-
 class DisplayController {
 public:
     DisplayController();
@@ -39,6 +34,7 @@ public:
 private:
     U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2;
     String currentStatus;
+    bool displayEnabled;
     
     void drawHeader();
     void drawMessage(int y, const String& sender, const String& text, bool isOwn);

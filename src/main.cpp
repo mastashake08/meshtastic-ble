@@ -75,6 +75,7 @@ void setup() {
 
 void loop() {
     unsigned long currentTime = millis();
+    static bool keyCheckMessageShown = false;
     
     switch (currentState) {
         case STATE_KEY_CHECK:
@@ -85,12 +86,19 @@ void loop() {
                 display.showKeyStatus(true);
                 delay(2000);
                 currentState = STATE_ADVERTISING;
+                keyCheckMessageShown = false;
             } else {
-                Serial.println("No keys found! Please import your Meshtastic keys.");
-                Serial.println("Add your keys via Serial commands:");
-                Serial.println("  IMPORT_PRIVATE:<your_private_key>");
-                Serial.println("  IMPORT_PUBLIC:<your_public_key>");
-                display.showKeyStatus(false);
+                // Only print instructions once
+                if (!keyCheckMessageShown) {
+                    Serial.println("\n=== WAITING FOR KEYS ===");
+                    Serial.println("No keys found! Please import your Meshtastic keys.");
+                    Serial.println("Add your keys via Serial commands:");
+                    Serial.println("  IMPORT_PRIVATE:<your_private_key>");
+                    Serial.println("  IMPORT_PUBLIC:<your_public_key>");
+                    Serial.println("Or type SKIP_KEYS to continue without keys\n");
+                    display.showKeyStatus(false);
+                    keyCheckMessageShown = true;
+                }
                 
                 // Wait for serial input
                 if (Serial.available()) {
@@ -99,30 +107,51 @@ void loop() {
                     
                     if (cmd.startsWith("IMPORT_PRIVATE:")) {
                         String key = cmd.substring(15);
-                        keyManager.importPrivateKey(key);
+                        key.trim();
+                        if (keyManager.importPrivateKey(key)) {
+                            Serial.println("✓ Private key imported");
+                        }
                     } else if (cmd.startsWith("IMPORT_PUBLIC:")) {
                         String key = cmd.substring(14);
-                        keyManager.importPublicKey(key);
+                        key.trim();
+                        if (keyManager.importPublicKey(key)) {
+                            Serial.println("✓ Public key imported");
+                        }
                     } else if (cmd == "SKIP_KEYS") {
-                        // For testing without keys
                         Serial.println("Skipping key check...");
                         currentState = STATE_ADVERTISING;
+                        keyCheckMessageShown = false;
+                    } else {
+                        Serial.println("Unknown command: " + cmd);
                     }
                 }
+                
+                // Small delay to prevent tight loop
+                delay(100);
             }
             break;
             
         case STATE_ADVERTISING:
-            Serial.println("BLE Server advertising...");
-            display.showScanning();  // Reuse scanning display for "Waiting for connection"
-            display.updateStatus("Advertising");
-            
-            // Wait for connection
-            if (bleServer.isConnected()) {
-                Serial.println("Client connected!");
-                display.showConnected(bleServer.getDeviceName());
-                currentState = STATE_CONNECTED;
-                delay(2000);
+            {
+                static bool advMessageShown = false;
+                if (!advMessageShown) {
+                    Serial.println("\n=== BLE SERVER ADVERTISING ===");
+                    Serial.println("Waiting for Meshtastic client to connect...");
+                    display.showScanning();
+                    display.updateStatus("Advertising");
+                    advMessageShown = true;
+                }
+                
+                // Check for connection
+                if (bleServer.isConnected()) {
+                    Serial.println("\n=== CLIENT CONNECTED ===");
+                    display.showConnected(bleServer.getDeviceName());
+                    currentState = STATE_CONNECTED;
+                    advMessageShown = false;
+                    delay(1000);
+                }
+                
+                delay(100);
             }
             break;
             

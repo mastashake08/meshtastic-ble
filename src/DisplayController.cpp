@@ -1,20 +1,65 @@
 #include "DisplayController.h"
+#include <Wire.h>
+
+// Board-defined pins from heltec_wifi_kit_32_V3 variant
+// SDA_OLED, SCL_OLED, RST_OLED, Vext are defined by the board
+#ifndef Vext
+#define Vext 36  // Fallback if not defined
+#endif
+#ifndef SDA_OLED  
+#define SDA_OLED 17  // GPIO17 = OLED_SDA per schematic
+#endif
+#ifndef SCL_OLED
+#define SCL_OLED 18  // GPIO18 = OLED_SCL per schematic
+#endif
+#ifndef RST_OLED
+#define RST_OLED 21
+#endif
 
 DisplayController::DisplayController() 
-    : u8g2(U8G2_R0, DISPLAY_RST, DISPLAY_SCL, DISPLAY_SDA) {
+    : u8g2(U8G2_R0, /* reset=*/ RST_OLED) {
     currentStatus = "Starting...";
+    displayEnabled = false;
 }
 
 bool DisplayController::begin() {
+    Serial.println("Initializing display...");
+    Serial.printf("OLED Pins - SDA:%d SCL:%d RST:%d Vext:%d\n", 
+                  SDA_OLED, SCL_OLED, RST_OLED, Vext);
+    
+    // Enable Vext power for OLED (Heltec: LOW = ON)
+    pinMode(Vext, OUTPUT);
+    digitalWrite(Vext, LOW);
+    Serial.println("Vext power ON");
+    delay(300);
+    
+    // Initialize I2C hardware bus BEFORE u8g2.begin()
+    Wire.begin(SDA_OLED, SCL_OLED);
+    Wire.setClock(400000);  // 400kHz
+    Serial.println("Hardware I2C initialized");
+    delay(100);
+    
+    // Initialize U8G2 display
     u8g2.begin();
+    
+    // Test: Draw something immediately
+    u8g2.clearBuffer();
+    u8g2.setFont(u8g2_font_ncenB10_tr);
+    u8g2.drawStr(0, 20, "TESTING");
+    u8g2.sendBuffer();
+    Serial.println("Test pattern sent to display");
+    delay(2000);
+    
     u8g2.setFont(u8g2_font_6x10_tf);
     u8g2.setFontRefHeightExtendedText();
     u8g2.setDrawColor(1);
     u8g2.setFontPosTop();
     u8g2.setFontDirection(0);
     
+    displayEnabled = true;
     showStartup();
-    Serial.println("Display initialized");
+    
+    Serial.println("Display initialized successfully!");
     return true;
 }
 
