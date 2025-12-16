@@ -10,6 +10,7 @@
 
 // Battery monitoring (Heltec WiFi LoRa 32 V3)
 #define BATTERY_PIN 1  // ADC1_CH0 for battery voltage
+#define VBUS_PIN 37    // GPIO37 for USB power detection
 #define ADC_SAMPLES 10
 const float ADC_VOLTAGE_DIVIDER = 2.0;  // Voltage divider ratio
 const float ADC_REF_VOLTAGE = 3.3;
@@ -68,6 +69,9 @@ uint8_t readBatteryLevel() {
     
     // Convert ADC reading to voltage
     float voltage = (adcAverage / ADC_MAX_VALUE) * ADC_REF_VOLTAGE * ADC_VOLTAGE_DIVIDER;
+    
+    // Debug output
+    Serial.printf("Battery ADC: %.0f, Voltage: %.2fV\n", adcAverage, voltage);
     
     // Convert voltage to percentage
     float percentage = ((voltage - BATTERY_MIN_VOLTAGE) / (BATTERY_MAX_VOLTAGE - BATTERY_MIN_VOLTAGE)) * 100.0;
@@ -171,9 +175,13 @@ void loop() {
     // Update battery level periodically
     if (currentTime - lastBatteryUpdate > BATTERY_UPDATE_INTERVAL) {
         batteryLevel = readBatteryLevel();
+        bool charging = (digitalRead(VBUS_PIN) == HIGH);  // HIGH when USB connected
+        
         bleServer.updateBatteryLevel(batteryLevel);
         display.updateBatteryLevel(batteryLevel);
-        Serial.printf("Battery: %d%%\n", batteryLevel);
+        display.updateChargingStatus(charging);
+        
+        Serial.printf("Battery: %d%% %s\n", batteryLevel, charging ? "(Charging)" : "");
         lastBatteryUpdate = currentTime;
     }
     

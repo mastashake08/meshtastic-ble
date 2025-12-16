@@ -22,6 +22,7 @@ DisplayController::DisplayController()
     displayEnabled = false;
     sleeping = false;
     batteryLevel = 100;
+    isCharging = false;
 }
 
 bool DisplayController::begin() {
@@ -69,8 +70,11 @@ void DisplayController::drawHeader() {
     u8g2.setFont(u8g2_font_6x10_tf);
     u8g2.drawStr(0, 0, currentStatus.c_str());
     
-    // Draw battery percentage in upper right
+    // Draw battery percentage and charging icon in upper right
     String batteryStr = String(batteryLevel) + "%";
+    if (isCharging) {
+        batteryStr = "⚡" + batteryStr;  // Lightning bolt for charging
+    }
     int batteryWidth = u8g2.getStrWidth(batteryStr.c_str());
     u8g2.drawStr(128 - batteryWidth, 0, batteryStr.c_str());
     
@@ -239,6 +243,10 @@ void DisplayController::updateStatus(const String& status) {
 
 void DisplayController::updateBatteryLevel(uint8_t level) {
     batteryLevel = level;
+}
+
+void DisplayController::updateChargingStatus(bool charging) {
+    isCharging = charging;
 }
 
 int DisplayController::wrapText(const String& text, int maxWidth, String* lines, int maxLines) {
