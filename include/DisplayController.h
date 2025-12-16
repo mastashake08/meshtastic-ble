@@ -28,6 +28,11 @@ public:
     // Status line (top of screen)
     void updateStatus(const String& status);
     
+    // Sleep mode
+    void sleep();
+    void wake();
+    bool isSleeping();
+    
     // Clear display
     void clear();
 
@@ -35,6 +40,7 @@ private:
     U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2;
     String currentStatus;
     bool displayEnabled;
+    bool sleeping;
     
     void drawHeader();
     void drawMessage(int y, const String& sender, const String& text, bool isOwn);

@@ -20,6 +20,7 @@ DisplayController::DisplayController()
     : u8g2(U8G2_R0, /* reset=*/ RST_OLED) {
     currentStatus = "Starting...";
     displayEnabled = false;
+    sleeping = false;
 }
 
 bool DisplayController::begin() {
@@ -72,6 +73,26 @@ void DisplayController::drawHeader() {
 void DisplayController::clear() {
     u8g2.clearBuffer();
     u8g2.sendBuffer();
+}
+
+void DisplayController::sleep() {
+    if (!sleeping) {
+        u8g2.clearBuffer();
+        u8g2.sendBuffer();
+        u8g2.setPowerSave(1);  // Turn off display
+        sleeping = true;
+    }
+}
+
+void DisplayController::wake() {
+    if (sleeping) {
+        u8g2.setPowerSave(0);  // Turn on display
+        sleeping = false;
+    }
+}
+
+bool DisplayController::isSleeping() {
+    return sleeping;
 }
 
 void DisplayController::showStartup() {

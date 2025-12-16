@@ -4,11 +4,20 @@
 #include "MessageHandler.h"
 #include "DisplayController.h"
 
+// PRG button (GPIO0 on ESP32)
+#define PRG_BUTTON 0
+#define LONG_PRESS_TIME 3000  // 3 seconds
+
 // Global objects
 MeshtasticBLE bleServer;
 KeyManager keyManager;
 MessageHandler messageHandler;
 DisplayController display;
+
+// Button state
+unsigned long buttonPressTime = 0;
+bool buttonWasPressed = false;
+bool sleepMode = false;
 
 // State management
 enum AppState {
@@ -36,6 +45,9 @@ void onBLEDataReceived(uint8_t* data, size_t length) {
 void setup() {
     Serial.begin(115200);
     delay(1000);
+    
+    // Initialize PRG button
+    pinMode(PRG_BUTTON, INPUT_PULLUP);
     
     Serial.println("\n=== Meshtastic BLE Server ===");
     
@@ -111,6 +123,46 @@ void setup() {
 void loop() {
     unsigned long currentTime = millis();
     static bool keyCheckMessageShown = false;
+    
+    // Handle PRG button for sleep mode toggle
+    bool buttonPressed = (digitalRead(PRG_BUTTON) == LOW);
+    
+    if (buttonPressed && !buttonWasPressed) {
+        // Button just pressed
+        buttonPressTime = currentTime;
+        buttonWasPressed = true;
+    } else if (!buttonPressed && buttonWasPressed) {
+        // Button just released
+        unsigned long pressDuration = currentTime - buttonPressTime;
+        
+        if (pressDuration >= LONG_PRESS_TIME) {
+            // Long press detected - toggle sleep mode
+            sleepMode = !sleepMode;
+            
+            if (sleepMode) {
+                Serial.println("Entering sleep mode...");
+                display.sleep();
+            } else {
+                Serial.println("Waking from sleep mode...");
+                display.wake();
+                // Refresh display based on current state
+                switch (currentState) {
+                    case STATE_KEY_CHECK:
+                        display.showKeyStatus(false);
+                        break;
+                    case STATE_ADVERTISING:
+                        display.showScanning();
+                        break;
+                    case STATE_CONNECTED:
+                        display.showConnected(bleServer.getDeviceName());
+                        break;
+                    default:
+                        break;
+                }
+            }
+        }
+        buttonWasPressed = false;
+    }
     
     switch (currentState) {
         case STATE_KEY_CHECK:
