@@ -45,7 +45,7 @@ bool DisplayController::begin() {
     // Test: Draw something immediately
     u8g2.clearBuffer();
     u8g2.setFont(u8g2_font_ncenB10_tr);
-    u8g2.drawStr(0, 20, "TESTING");
+    u8g2.drawStr(0, 20, "HACKER GANG BITCH");
     u8g2.sendBuffer();
     Serial.println("Test pattern sent to display");
     delay(2000);
@@ -78,8 +78,8 @@ void DisplayController::showStartup() {
     u8g2.clearBuffer();
     u8g2.setFont(u8g2_font_ncenB10_tr);
     
-    int w = u8g2.getStrWidth("Meshtastic");
-    u8g2.drawStr((128 - w) / 2, 20, "Meshtastic");
+    int w = u8g2.getStrWidth("Mastashake");
+    u8g2.drawStr((128 - w) / 2, 20, "Mastashake");
     
     u8g2.setFont(u8g2_font_6x10_tf);
     w = u8g2.getStrWidth("BLE Controller");

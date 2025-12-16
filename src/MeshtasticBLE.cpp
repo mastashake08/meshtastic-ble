@@ -40,12 +40,33 @@ public:
     }
 };
 
+// KeyControl characteristic write callbacks
+class MeshtasticBLE::KeyControlCallbacks: public BLECharacteristicCallbacks {
+    MeshtasticBLE* parent;
+public:
+    KeyControlCallbacks(MeshtasticBLE* p) : parent(p) {}
+    
+    void onWrite(BLECharacteristic* pCharacteristic) {
+        String value = pCharacteristic->getValue();
+        
+        if (value.length() > 0) {
+            Serial.printf("Received key command: %s\n", value.c_str());
+            
+            // Call the registered callback
+            if (parent->keyCallback) {
+                parent->keyCallback(value);
+            }
+        }
+    }
+};
+
 MeshtasticBLE::MeshtasticBLE() 
     : pServer(nullptr)
     , pService(nullptr)
     , pToRadioChar(nullptr)
     , pFromRadioChar(nullptr)
     , pFromNumChar(nullptr)
+    , pKeyControlChar(nullptr)
     , connected(false)
     , fromNum(0) {
 }
@@ -89,6 +110,13 @@ bool MeshtasticBLE::begin(const String& name) {
         BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
     );
     // BLE2902 descriptor automatically added by NimBLE for notify characteristic
+    
+    // Create KeyControl characteristic (writable - receives key import commands)
+    pKeyControlChar = pService->createCharacteristic(
+        KEY_CONTROL_UUID,
+        BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR
+    );
+    pKeyControlChar->setCallbacks(new KeyControlCallbacks(this));
     
     // Start the service
     pService->start();
@@ -148,6 +176,10 @@ bool MeshtasticBLE::sendFromRadio(uint8_t* data, size_t length) {
 
 void MeshtasticBLE::onDataReceived(std::function<void(uint8_t*, size_t)> callback) {
     dataCallback = callback;
+}
+
+void MeshtasticBLE::onKeyCommand(std::function<void(const String&)> callback) {
+    keyCallback = callback;
 }
 
 String MeshtasticBLE::getDeviceName() {

@@ -12,6 +12,7 @@
 #define TORADIO_UUID                 "f75c76d2-129e-4dad-a1dd-7866124401e7"
 #define FROMRADIO_UUID               "2c55e69e-4993-11ed-b878-0242ac120002"
 #define FROMNUM_UUID                 "ed9da18c-a800-4f66-a670-aa7547e34453"
+#define KEY_CONTROL_UUID             "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 
 class MeshtasticBLE {
 public:
@@ -34,6 +35,9 @@ public:
     // Register callback for received data (ToRadio writes)
     void onDataReceived(std::function<void(uint8_t*, size_t)> callback);
     
+    // Register callback for key control commands
+    void onKeyCommand(std::function<void(const String&)> callback);
+    
     // Get device name
     String getDeviceName();
 
@@ -43,18 +47,22 @@ private:
     BLECharacteristic* pToRadioChar;
     BLECharacteristic* pFromRadioChar;
     BLECharacteristic* pFromNumChar;
+    BLECharacteristic* pKeyControlChar;
     
     String deviceName;
     bool connected;
     uint32_t fromNum;
     
     std::function<void(uint8_t*, size_t)> dataCallback;
+    std::function<void(const String&)> keyCallback;
     
     class ServerCallbacks;
     class ToRadioCallbacks;
+    class KeyControlCallbacks;
     
     friend class ServerCallbacks;
     friend class ToRadioCallbacks;
+    friend class KeyControlCallbacks;
 };
 
 #endif // MESHTASTIC_BLE_H

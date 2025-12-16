@@ -67,6 +67,41 @@ void setup() {
     // Register BLE data callback
     bleServer.onDataReceived(onBLEDataReceived);
     
+    // Register BLE key command callback
+    bleServer.onKeyCommand([](const String& cmd) {
+        Serial.printf("BLE Key Command: %s\n", cmd.c_str());
+        
+        if (cmd.startsWith("IMPORT_PRIVATE:")) {
+            String key = cmd.substring(15);
+            key.trim();
+            if (keyManager.importPrivateKey(key)) {
+                Serial.println("✓ Private key imported via BLE");
+            } else {
+                Serial.println("✗ Failed to import private key via BLE");
+            }
+        } else if (cmd.startsWith("IMPORT_PUBLIC:")) {
+            String key = cmd.substring(14);
+            key.trim();
+            if (keyManager.importPublicKey(key)) {
+                Serial.println("✓ Public key imported via BLE");
+            } else {
+                Serial.println("✗ Failed to import public key via BLE");
+            }
+        } else if (cmd == "SKIP_KEYS") {
+            Serial.println("Skipping key check via BLE...");
+            currentState = STATE_ADVERTISING;
+        } else if (cmd == "STATUS") {
+            // Send key status back
+            if (keyManager.hasKeys()) {
+                Serial.println("Keys are loaded");
+            } else {
+                Serial.println("No keys loaded");
+            }
+        } else {
+            Serial.println("Unknown BLE key command: " + cmd);
+        }
+    });
+    
     // Check if keys are loaded
     currentState = STATE_KEY_CHECK;
     
