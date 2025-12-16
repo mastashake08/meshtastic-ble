@@ -1,133 +1,148 @@
 #include "MeshtasticBLE.h"
 
-MeshtasticBLE* MeshtasticBLE::instance = nullptr;
-
-class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
-    std::vector<BLEAdvertisedDevice>* devices;
+// Server connection callbacks
+class MeshtasticBLE::ServerCallbacks: public BLEServerCallbacks {
+    MeshtasticBLE* parent;
 public:
-    MyAdvertisedDeviceCallbacks(std::vector<BLEAdvertisedDevice>* devs) : devices(devs) {}
+    ServerCallbacks(MeshtasticBLE* p) : parent(p) {}
     
-    void onResult(BLEAdvertisedDevice advertisedDevice) {
-        // Check if device advertises Meshtastic service
-        if (advertisedDevice.haveServiceUUID() && 
-            advertisedDevice.isAdvertisingService(BLEUUID(MESHTASTIC_SERVICE_UUID))) {
-            Serial.printf("Found Meshtastic device: %s\n", advertisedDevice.toString().c_str());
-            devices->push_back(advertisedDevice);
+    void onConnect(BLEServer* pServer) {
+        parent->connected = true;
+        Serial.println("Client connected!");
+    }
+    
+    void onDisconnect(BLEServer* pServer) {
+        parent->connected = false;
+        Serial.println("Client disconnected!");
+        // Restart advertising
+        delay(500);
+        parent->startAdvertising();
+    }
+};
+
+// ToRadio characteristic write callbacks
+class MeshtasticBLE::ToRadioCallbacks: public BLECharacteristicCallbacks {
+    MeshtasticBLE* parent;
+public:
+    ToRadioCallbacks(MeshtasticBLE* p) : parent(p) {}
+    
+    void onWrite(BLECharacteristic* pCharacteristic) {
+        String value = pCharacteristic->getValue();
+        
+        if (value.length() > 0) {
+            Serial.printf("Received %d bytes on ToRadio\n", value.length());
+            
+            // Call the registered callback
+            if (parent->dataCallback) {
+                parent->dataCallback((uint8_t*)value.c_str(), value.length());
+            }
         }
     }
 };
 
 MeshtasticBLE::MeshtasticBLE() 
-    : pClient(nullptr)
-    , pScan(nullptr)
+    : pServer(nullptr)
+    , pService(nullptr)
     , pToRadioChar(nullptr)
     , pFromRadioChar(nullptr)
     , pFromNumChar(nullptr)
-    , connected(false) {
-    instance = this;
+    , connected(false)
+    , fromNum(0) {
 }
 
 MeshtasticBLE::~MeshtasticBLE() {
-    disconnect();
-    instance = nullptr;
+    if (pServer) {
+        pServer->getAdvertising()->stop();
+    }
 }
 
-bool MeshtasticBLE::begin() {
-    Serial.println("Initializing BLE...");
-    BLEDevice::init("Meshtastic-Controller");
+bool MeshtasticBLE::begin(const String& name) {
+    deviceName = name;
     
-    pScan = BLEDevice::getScan();
-    pScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks(&foundDevices));
-    pScan->setActiveScan(true);
-    pScan->setInterval(100);
-    pScan->setWindow(99);
+    Serial.println("Initializing BLE Server...");
+    BLEDevice::init(deviceName.c_str());
+    
+    // Create BLE Server
+    pServer = BLEDevice::createServer();
+    pServer->setCallbacks(new ServerCallbacks(this));
+    
+    // Create Meshtastic Service
+    pService = pServer->createService(MESHTASTIC_SERVICE_UUID);
+    
+    // Create ToRadio characteristic (writable - receives data from client)
+    pToRadioChar = pService->createCharacteristic(
+        TORADIO_UUID,
+        BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR
+    );
+    pToRadioChar->setCallbacks(new ToRadioCallbacks(this));
+    
+    // Create FromRadio characteristic (readable + notify - sends data to client)
+    pFromRadioChar = pService->createCharacteristic(
+        FROMRADIO_UUID,
+        BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
+    );
+    // BLE2902 descriptor automatically added by NimBLE for notify characteristic
+    
+    // Create FromNum characteristic (notify - indicates new data available)
+    pFromNumChar = pService->createCharacteristic(
+        FROMNUM_UUID,
+        BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
+    );
+    // BLE2902 descriptor automatically added by NimBLE for notify characteristic
+    
+    // Start the service
+    pService->start();
+    
+    // Start advertising
+    startAdvertising();
+    
+    Serial.println("BLE Server started!");
+    Serial.printf("Device name: %s\n", deviceName.c_str());
+    Serial.println("Waiting for connections...");
     
     return true;
 }
 
-bool MeshtasticBLE::scanForDevices(uint32_t scanDuration) {
-    foundDevices.clear();
-    Serial.println("Scanning for Meshtastic devices...");
-    
-    pScan->start(scanDuration, false);
-    pScan->clearResults();
-    
-    Serial.printf("Found %d Meshtastic device(s)\n", foundDevices.size());
-    return foundDevices.size() > 0;
+void MeshtasticBLE::startAdvertising() {
+    BLEAdvertising* pAdvertising = pServer->getAdvertising();
+    pAdvertising->addServiceUUID(MESHTASTIC_SERVICE_UUID);
+    pAdvertising->setScanResponse(true);
+    pAdvertising->setMinPreferred(0x06);  // Functions for iPhone connection optimization
+    pAdvertising->setMaxPreferred(0x12);
+    pAdvertising->start();
+    Serial.println("BLE advertising started");
 }
 
-bool MeshtasticBLE::connect(BLEAddress address) {
-    if (connected) {
-        disconnect();
-    }
-    
-    Serial.printf("Connecting to %s...\n", address.toString().c_str());
-    
-    pClient = BLEDevice::createClient();
-    
-    if (!pClient->connect(address)) {
-        Serial.println("Failed to connect");
-        return false;
-    }
-    
-    Serial.println("Connected! Getting service...");
-    
-    BLERemoteService* pService = pClient->getService(MESHTASTIC_SERVICE_UUID);
-    if (pService == nullptr) {
-        Serial.println("Failed to find Meshtastic service");
-        pClient->disconnect();
-        return false;
-    }
-    
-    // Get characteristics
-    pToRadioChar = pService->getCharacteristic(TORADIO_UUID);
-    pFromRadioChar = pService->getCharacteristic(FROMRADIO_UUID);
-    pFromNumChar = pService->getCharacteristic(FROMNUM_UUID);
-    
-    if (pToRadioChar == nullptr || pFromRadioChar == nullptr) {
-        Serial.println("Failed to find required characteristics");
-        pClient->disconnect();
-        return false;
-    }
-    
-    // Register for notifications on FromRadio
-    if (pFromRadioChar->canNotify()) {
-        pFromRadioChar->registerForNotify(notifyCallback);
-    }
-    
-    connected = true;
-    Serial.println("Successfully connected to Meshtastic device!");
-    return true;
-}
-
-bool MeshtasticBLE::connectToFirst() {
-    if (foundDevices.size() == 0) {
-        Serial.println("No devices found. Run scan first.");
-        return false;
-    }
-    
-    return connect(foundDevices[0].getAddress());
-}
-
-void MeshtasticBLE::disconnect() {
-    if (pClient != nullptr && connected) {
-        pClient->disconnect();
-        connected = false;
-        Serial.println("Disconnected from device");
-    }
+void MeshtasticBLE::stopAdvertising() {
+    pServer->getAdvertising()->stop();
+    Serial.println("BLE advertising stopped");
 }
 
 bool MeshtasticBLE::isConnected() {
-    return connected && pClient != nullptr && pClient->isConnected();
+    return connected;
 }
 
-bool MeshtasticBLE::sendToRadio(uint8_t* data, size_t length) {
-    if (!isConnected() || pToRadioChar == nullptr) {
-        Serial.println("Not connected");
+bool MeshtasticBLE::sendFromRadio(uint8_t* data, size_t length) {
+    if (pFromRadioChar == nullptr) {
+        Serial.println("FromRadio characteristic not initialized");
         return false;
     }
     
-    pToRadioChar->writeValue(data, length);
+    // Update the characteristic value
+    pFromRadioChar->setValue(data, length);
+    
+    // Notify connected clients if any
+    if (connected) {
+        pFromRadioChar->notify();
+        
+        // Update FromNum to indicate new data
+        fromNum++;
+        pFromNumChar->setValue(fromNum);
+        pFromNumChar->notify();
+        
+        Serial.printf("Sent %d bytes via FromRadio (packet #%d)\n", length, fromNum);
+    }
+    
     return true;
 }
 
@@ -135,26 +150,6 @@ void MeshtasticBLE::onDataReceived(std::function<void(uint8_t*, size_t)> callbac
     dataCallback = callback;
 }
 
-void MeshtasticBLE::notifyCallback(BLERemoteCharacteristic* pChar, uint8_t* pData, size_t length, bool isNotify) {
-    if (instance != nullptr && instance->dataCallback) {
-        instance->dataCallback(pData, length);
-    }
-}
-
-int MeshtasticBLE::getDeviceCount() {
-    return foundDevices.size();
-}
-
-BLEAddress MeshtasticBLE::getDeviceAddress(int index) {
-    if (index >= 0 && index < foundDevices.size()) {
-        return foundDevices[index].getAddress();
-    }
-    return BLEAddress("");
-}
-
-String MeshtasticBLE::getDeviceName(int index) {
-    if (index >= 0 && index < foundDevices.size()) {
-        return foundDevices[index].getName().c_str();
-    }
-    return "";
+String MeshtasticBLE::getDeviceName() {
+    return deviceName;
 }

@@ -3,8 +3,8 @@
 
 #include <Arduino.h>
 #include <BLEDevice.h>
-#include <BLEClient.h>
-#include <BLEScan.h>
+#include <BLEServer.h>
+#include <BLEUtils.h>
 #include <functional>
 
 // Meshtastic BLE Service and Characteristic UUIDs
@@ -18,47 +18,43 @@ public:
     MeshtasticBLE();
     ~MeshtasticBLE();
 
-    // Initialize BLE
-    bool begin();
+    // Initialize BLE Server
+    bool begin(const String& deviceName = "Meshtastic-ESP32");
     
-    // Scan for Meshtastic devices
-    bool scanForDevices(uint32_t scanDuration = 5);
-    
-    // Connect to a specific device
-    bool connect(BLEAddress address);
-    bool connectToFirst(); // Connect to first found device
-    
-    // Disconnect
-    void disconnect();
+    // Start advertising
+    void startAdvertising();
+    void stopAdvertising();
     
     // Check connection status
     bool isConnected();
     
-    // Send data to radio (ToRadio)
-    bool sendToRadio(uint8_t* data, size_t length);
+    // Send data from radio (notify clients)
+    bool sendFromRadio(uint8_t* data, size_t length);
     
-    // Register callback for received data (FromRadio)
+    // Register callback for received data (ToRadio writes)
     void onDataReceived(std::function<void(uint8_t*, size_t)> callback);
     
-    // Get list of found devices
-    int getDeviceCount();
-    BLEAddress getDeviceAddress(int index);
-    String getDeviceName(int index);
+    // Get device name
+    String getDeviceName();
 
 private:
-    BLEClient* pClient;
-    BLEScan* pScan;
-    BLERemoteCharacteristic* pToRadioChar;
-    BLERemoteCharacteristic* pFromRadioChar;
-    BLERemoteCharacteristic* pFromNumChar;
+    BLEServer* pServer;
+    BLEService* pService;
+    BLECharacteristic* pToRadioChar;
+    BLECharacteristic* pFromRadioChar;
+    BLECharacteristic* pFromNumChar;
     
-    std::vector<BLEAdvertisedDevice> foundDevices;
+    String deviceName;
     bool connected;
+    uint32_t fromNum;
     
     std::function<void(uint8_t*, size_t)> dataCallback;
     
-    static void notifyCallback(BLERemoteCharacteristic* pChar, uint8_t* pData, size_t length, bool isNotify);
-    static MeshtasticBLE* instance; // For static callback
+    class ServerCallbacks;
+    class ToRadioCallbacks;
+    
+    friend class ServerCallbacks;
+    friend class ToRadioCallbacks;
 };
 
 #endif // MESHTASTIC_BLE_H

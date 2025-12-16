@@ -5,7 +5,7 @@
 #include "DisplayController.h"
 
 // Global objects
-MeshtasticBLE bleClient;
+MeshtasticBLE bleServer;
 KeyManager keyManager;
 MessageHandler messageHandler;
 DisplayController display;
@@ -14,19 +14,17 @@ DisplayController display;
 enum AppState {
     STATE_INIT,
     STATE_KEY_CHECK,
-    STATE_SCANNING,
-    STATE_CONNECTING,
-    STATE_CONNECTED,
-    STATE_DISCONNECTED
+    STATE_ADVERTISING,
+    STATE_CONNECTED
 };
 
 AppState currentState = STATE_INIT;
 unsigned long lastDisplayUpdate = 0;
 const unsigned long DISPLAY_UPDATE_INTERVAL = 1000; // Update display every second
 
-// BLE callback for received data
+// BLE callback for received data (from connected client)
 void onBLEDataReceived(uint8_t* data, size_t length) {
-    Serial.printf("Received %d bytes from BLE\n", length);
+    Serial.printf("Received %d bytes from client\n", length);
     
     // Process the received data
     if (messageHandler.processReceivedData(data, length)) {
@@ -39,7 +37,7 @@ void setup() {
     Serial.begin(115200);
     delay(1000);
     
-    Serial.println("\n=== Meshtastic BLE Controller ===");
+    Serial.println("\n=== Meshtastic BLE Server ===");
     
     // Initialize display
     if (!display.begin()) {
@@ -59,15 +57,15 @@ void setup() {
     // Initialize message handler
     messageHandler.begin();
     
-    // Initialize BLE
-    if (!bleClient.begin()) {
-        Serial.println("Failed to initialize BLE!");
+    // Initialize BLE Server
+    if (!bleServer.begin("Meshtastic-ESP32")) {
+        Serial.println("Failed to initialize BLE Server!");
         display.updateStatus("Error: BLE");
         return;
     }
     
     // Register BLE data callback
-    bleClient.onDataReceived(onBLEDataReceived);
+    bleServer.onDataReceived(onBLEDataReceived);
     
     // Check if keys are loaded
     currentState = STATE_KEY_CHECK;
@@ -86,7 +84,7 @@ void loop() {
                 Serial.printf("Public key: %s\n", keyManager.getPublicKey().c_str());
                 display.showKeyStatus(true);
                 delay(2000);
-                currentState = STATE_SCANNING;
+                currentState = STATE_ADVERTISING;
             } else {
                 Serial.println("No keys found! Please import your Meshtastic keys.");
                 Serial.println("Add your keys via Serial commands:");
@@ -108,53 +106,33 @@ void loop() {
                     } else if (cmd == "SKIP_KEYS") {
                         // For testing without keys
                         Serial.println("Skipping key check...");
-                        currentState = STATE_SCANNING;
+                        currentState = STATE_ADVERTISING;
                     }
                 }
             }
             break;
             
-        case STATE_SCANNING:
-            Serial.println("Scanning for Meshtastic devices...");
-            display.showScanning();
+        case STATE_ADVERTISING:
+            Serial.println("BLE Server advertising...");
+            display.showScanning();  // Reuse scanning display for "Waiting for connection"
+            display.updateStatus("Advertising");
             
-            if (bleClient.scanForDevices(5)) {
-                Serial.printf("Found %d device(s)\n", bleClient.getDeviceCount());
-                for (int i = 0; i < bleClient.getDeviceCount(); i++) {
-                    Serial.printf("  [%d] %s - %s\n", 
-                        i, 
-                        bleClient.getDeviceName(i).c_str(),
-                        bleClient.getDeviceAddress(i).toString().c_str());
-                }
-                currentState = STATE_CONNECTING;
-            } else {
-                Serial.println("No devices found, retrying...");
-                delay(2000);
-            }
-            break;
-            
-        case STATE_CONNECTING:
-            Serial.println("Connecting to first device...");
-            display.showConnecting(bleClient.getDeviceName(0));
-            
-            if (bleClient.connectToFirst()) {
-                Serial.println("Connected successfully!");
-                display.showConnected(bleClient.getDeviceName(0));
+            // Wait for connection
+            if (bleServer.isConnected()) {
+                Serial.println("Client connected!");
+                display.showConnected(bleServer.getDeviceName());
                 currentState = STATE_CONNECTED;
                 delay(2000);
-            } else {
-                Serial.println("Connection failed, retrying scan...");
-                delay(2000);
-                currentState = STATE_SCANNING;
             }
             break;
             
         case STATE_CONNECTED:
             // Check connection status
-            if (!bleClient.isConnected()) {
-                Serial.println("Disconnected!");
+            if (!bleServer.isConnected()) {
+                Serial.println("Client disconnected!");
                 display.showDisconnected();
-                currentState = STATE_DISCONNECTED;
+                delay(2000);
+                currentState = STATE_ADVERTISING;
                 break;
             }
             
@@ -176,8 +154,8 @@ void loop() {
                     size_t length;
                     
                     if (messageHandler.createTextMessage(msg, buffer, &length, sizeof(buffer))) {
-                        if (bleClient.sendToRadio(buffer, length)) {
-                            Serial.println("Message sent!");
+                        if (bleServer.sendFromRadio(buffer, length)) {
+                            Serial.println("Message sent to client!");
                             messageHandler.addSentMessage(msg);
                             display.showMessages(messageHandler);
                         } else {
@@ -186,12 +164,6 @@ void loop() {
                     }
                 }
             }
-            break;
-            
-        case STATE_DISCONNECTED:
-            delay(3000);
-            Serial.println("Attempting to reconnect...");
-            currentState = STATE_SCANNING;
             break;
             
         default:
