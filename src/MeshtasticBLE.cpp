@@ -67,6 +67,8 @@ MeshtasticBLE::MeshtasticBLE()
     , pFromRadioChar(nullptr)
     , pFromNumChar(nullptr)
     , pKeyControlChar(nullptr)
+    , pBatteryService(nullptr)
+    , pBatteryLevelChar(nullptr)
     , connected(false)
     , fromNum(0) {
 }
@@ -121,6 +123,22 @@ bool MeshtasticBLE::begin(const String& name) {
     // Start the service
     pService->start();
     
+    // Create Battery Service (standard BLE service)
+    pBatteryService = pServer->createService(BATTERY_SERVICE_UUID);
+    
+    // Create Battery Level characteristic (readable + notify)
+    pBatteryLevelChar = pBatteryService->createCharacteristic(
+        BATTERY_LEVEL_UUID,
+        BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
+    );
+    
+    // Set initial battery level to 100%
+    uint8_t initialLevel = 100;
+    pBatteryLevelChar->setValue(&initialLevel, 1);
+    
+    // Start battery service
+    pBatteryService->start();
+    
     // Start advertising
     startAdvertising();
     
@@ -134,6 +152,7 @@ bool MeshtasticBLE::begin(const String& name) {
 void MeshtasticBLE::startAdvertising() {
     BLEAdvertising* pAdvertising = pServer->getAdvertising();
     pAdvertising->addServiceUUID(MESHTASTIC_SERVICE_UUID);
+    pAdvertising->addServiceUUID(BATTERY_SERVICE_UUID);
     pAdvertising->setScanResponse(true);
     pAdvertising->setMinPreferred(0x06);  // Functions for iPhone connection optimization
     pAdvertising->setMaxPreferred(0x12);
@@ -180,6 +199,24 @@ void MeshtasticBLE::onDataReceived(std::function<void(uint8_t*, size_t)> callbac
 
 void MeshtasticBLE::onKeyCommand(std::function<void(const String&)> callback) {
     keyCallback = callback;
+}
+
+void MeshtasticBLE::updateBatteryLevel(uint8_t level) {
+    if (pBatteryLevelChar == nullptr) {
+        return;
+    }
+    
+    // Ensure level is 0-100
+    if (level > 100) {
+        level = 100;
+    }
+    
+    pBatteryLevelChar->setValue(&level, 1);
+    
+    // Notify connected clients
+    if (connected) {
+        pBatteryLevelChar->notify();
+    }
 }
 
 String MeshtasticBLE::getDeviceName() {

@@ -21,6 +21,7 @@ DisplayController::DisplayController()
     currentStatus = "Starting...";
     displayEnabled = false;
     sleeping = false;
+    batteryLevel = 100;
 }
 
 bool DisplayController::begin() {
@@ -67,6 +68,12 @@ bool DisplayController::begin() {
 void DisplayController::drawHeader() {
     u8g2.setFont(u8g2_font_6x10_tf);
     u8g2.drawStr(0, 0, currentStatus.c_str());
+    
+    // Draw battery percentage in upper right
+    String batteryStr = String(batteryLevel) + "%";
+    int batteryWidth = u8g2.getStrWidth(batteryStr.c_str());
+    u8g2.drawStr(128 - batteryWidth, 0, batteryStr.c_str());
+    
     u8g2.drawLine(0, 10, 128, 10);
 }
 
@@ -228,6 +235,10 @@ void DisplayController::showLatestMessage(const Message& msg) {
 
 void DisplayController::updateStatus(const String& status) {
     currentStatus = status;
+}
+
+void DisplayController::updateBatteryLevel(uint8_t level) {
+    batteryLevel = level;
 }
 
 int DisplayController::wrapText(const String& text, int maxWidth, String* lines, int maxLines) {

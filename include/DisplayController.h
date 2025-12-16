@@ -27,6 +27,7 @@ public:
     
     // Status line (top of screen)
     void updateStatus(const String& status);
+    void updateBatteryLevel(uint8_t level);
     
     // Sleep mode
     void sleep();
@@ -41,6 +42,7 @@ private:
     String currentStatus;
     bool displayEnabled;
     bool sleeping;
+    uint8_t batteryLevel;
     
     void drawHeader();
     void drawMessage(int y, const String& sender, const String& text, bool isOwn);

@@ -8,6 +8,15 @@
 #define PRG_BUTTON 0
 #define LONG_PRESS_TIME 3000  // 3 seconds
 
+// Battery monitoring (Heltec WiFi LoRa 32 V3)
+#define BATTERY_PIN 1  // ADC1_CH0 for battery voltage
+#define ADC_SAMPLES 10
+const float ADC_VOLTAGE_DIVIDER = 2.0;  // Voltage divider ratio
+const float ADC_REF_VOLTAGE = 3.3;
+const int ADC_MAX_VALUE = 4095;  // 12-bit ADC
+const float BATTERY_MIN_VOLTAGE = 3.0;  // Min voltage for 0%
+const float BATTERY_MAX_VOLTAGE = 4.2;  // Max voltage for 100%
+
 // Global objects
 MeshtasticBLE bleServer;
 KeyManager keyManager;
@@ -18,6 +27,11 @@ DisplayController display;
 unsigned long buttonPressTime = 0;
 bool buttonWasPressed = false;
 bool sleepMode = false;
+
+// Battery state
+uint8_t batteryLevel = 100;
+unsigned long lastBatteryUpdate = 0;
+const unsigned long BATTERY_UPDATE_INTERVAL = 30000;  // Update every 30 seconds
 
 // State management
 enum AppState {
@@ -42,12 +56,39 @@ void onBLEDataReceived(uint8_t* data, size_t length) {
     }
 }
 
+// Read battery level (0-100%)
+uint8_t readBatteryLevel() {
+    // Take multiple samples for accuracy
+    int adcSum = 0;
+    for (int i = 0; i < ADC_SAMPLES; i++) {
+        adcSum += analogRead(BATTERY_PIN);
+        delay(10);
+    }
+    float adcAverage = adcSum / (float)ADC_SAMPLES;
+    
+    // Convert ADC reading to voltage
+    float voltage = (adcAverage / ADC_MAX_VALUE) * ADC_REF_VOLTAGE * ADC_VOLTAGE_DIVIDER;
+    
+    // Convert voltage to percentage
+    float percentage = ((voltage - BATTERY_MIN_VOLTAGE) / (BATTERY_MAX_VOLTAGE - BATTERY_MIN_VOLTAGE)) * 100.0;
+    
+    // Clamp to 0-100%
+    if (percentage < 0) percentage = 0;
+    if (percentage > 100) percentage = 100;
+    
+    return (uint8_t)percentage;
+}
+
 void setup() {
     Serial.begin(115200);
     delay(1000);
     
     // Initialize PRG button
     pinMode(PRG_BUTTON, INPUT_PULLUP);
+    
+    // Initialize battery ADC
+    analogReadResolution(12);  // 12-bit resolution
+    analogSetAttenuation(ADC_11db);  // For 0-3.3V range
     
     Serial.println("\n=== Meshtastic BLE Server ===");
     
@@ -126,6 +167,15 @@ void loop() {
     
     // Handle PRG button for sleep mode toggle
     bool buttonPressed = (digitalRead(PRG_BUTTON) == LOW);
+    
+    // Update battery level periodically
+    if (currentTime - lastBatteryUpdate > BATTERY_UPDATE_INTERVAL) {
+        batteryLevel = readBatteryLevel();
+        bleServer.updateBatteryLevel(batteryLevel);
+        display.updateBatteryLevel(batteryLevel);
+        Serial.printf("Battery: %d%%\n", batteryLevel);
+        lastBatteryUpdate = currentTime;
+    }
     
     if (buttonPressed && !buttonWasPressed) {
         // Button just pressed

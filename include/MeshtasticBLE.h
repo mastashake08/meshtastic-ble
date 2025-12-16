@@ -14,6 +14,10 @@
 #define FROMNUM_UUID                 "ed9da18c-a800-4f66-a670-aa7547e34453"
 #define KEY_CONTROL_UUID             "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 
+// Standard Battery Service UUID
+#define BATTERY_SERVICE_UUID         "0000180F-0000-1000-8000-00805f9b34fb"
+#define BATTERY_LEVEL_UUID           "00002A19-0000-1000-8000-00805f9b34fb"
+
 class MeshtasticBLE {
 public:
     MeshtasticBLE();
@@ -38,6 +42,9 @@ public:
     // Register callback for key control commands
     void onKeyCommand(std::function<void(const String&)> callback);
     
+    // Update battery level (0-100%)
+    void updateBatteryLevel(uint8_t level);
+    
     // Get device name
     String getDeviceName();
 
@@ -48,6 +55,9 @@ private:
     BLECharacteristic* pFromRadioChar;
     BLECharacteristic* pFromNumChar;
     BLECharacteristic* pKeyControlChar;
+    
+    BLEService* pBatteryService;
+    BLECharacteristic* pBatteryLevelChar;
     
     String deviceName;
     bool connected;
